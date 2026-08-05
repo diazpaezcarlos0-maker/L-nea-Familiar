@@ -147,3 +147,64 @@ input.error { border-color: var(--danger); }
 
 .loading { color: var(--paper-soft); font-size: 13px; }
 .empty-note { font-size: 12.5px; color: var(--paper-soft); padding: 8px 2px; }
+
+/* Tabs */
+.tabs-bar { display: flex; gap: 4px; padding: 0 20px 14px; }
+.tab-btn {
+  flex: 1; padding: 8px; border-radius: 8px; cursor: pointer; font-size: 12.5px; font-weight: 600;
+  border: 1px solid var(--line); background: var(--card-soft); color: var(--paper-soft); font-family: inherit;
+}
+.tab-btn.active { background: var(--brass); color: var(--card); border-color: var(--brass); }
+
+/* Year scrubber */
+.scrubber-wrap { overflow-x: auto; padding: 12px 0 8px; -ms-overflow-style: none; scrollbar-width: none; }
+.scrubber-wrap::-webkit-scrollbar { display: none; }
+.scrubber { display: inline-flex; align-items: flex-end; gap: 5px; padding: 0 20px; }
+.scrub-tick { background: none; border: none; padding: 0 2px; cursor: pointer; display: flex; flex-direction: column; align-items: center; min-width: 10px; }
+.scrub-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brass); margin-bottom: 3px; }
+.scrub-bar { width: 1.5px; background: var(--line); border-radius: 2px; transition: height .15s ease; display: block; }
+.scrub-tick.sel .scrub-bar { width: 2px; background: var(--brass); }
+.scrub-tick.has .scrub-bar { background: var(--brass-dim); }
+.scrub-label { font-size: 9px; margin-top: 5px; color: var(--paper-soft); font-family: 'Inter', sans-serif; }
+.year-display { font-size: 42px; font-weight: 500; padding: 4px 20px 2px; font-family: 'Inter', sans-serif; letter-spacing: -1px; }
+.year-count { font-size: 13px; color: var(--paper-soft); padding: 0 20px 8px; }
+
+/* Section */
+.section { padding: 0 20px 16px; }
+.section-label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--brass); margin-bottom: 8px; font-weight: 600; }
+
+/* Event card */
+.event-card { background: var(--card-soft); border-radius: 14px; padding: 12px 14px; border-left: 2px solid var(--brass); margin-bottom: 8px; }
+.event-title { font-size: 14px; font-weight: 600; }
+.event-desc { font-size: 12.5px; color: var(--paper-soft); margin-top: 2px; line-height: 1.4; }
+.event-members { font-size: 11px; color: var(--brass-dim); margin-top: 5px; }
+.event-expand { background: none; border: none; color: var(--brass); font-size: 12px; cursor: pointer; padding: 4px 0 0; font-family: inherit; }
+.event-story { font-size: 13px; line-height: 1.6; color: var(--paper); font-family: 'Fraunces', serif; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+
+/* Person row */
+.person-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--card); border-radius: 10px; cursor: pointer; margin-bottom: 6px; }
+.person-row.gone { opacity: 0.5; }
+.person-avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--card-soft); border: 1.5px solid var(--brass-dim); display: flex; align-items: center; justify-content: center; font-family: 'Fraunces', serif; font-size: 14px; font-weight: 600; flex-shrink: 0; }
+.person-avatar.you { background: var(--brass); color: var(--card); border-color: var(--brass); }
+.person-avatar.big { width: 56px; height: 56px; font-size: 22px; border-radius: 50%; }
+.person-info { flex: 1; min-width: 0; }
+.person-name { font-size: 14px; }
+.person-name.you { color: var(--brass); font-weight: 600; }
+.person-meta { font-size: 11px; color: var(--paper-soft); }
+.person-age { font-size: 12px; color: var(--paper-soft); flex-shrink: 0; }
+
+/* Map */
+.map-wrap { background: var(--card-soft); border-radius: 16px; padding: 8px; margin: 0 20px 12px; }
+.city-list { padding: 0 20px; }
+.city-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 2px; }
+.city-names { color: var(--paper-soft); }
+
+/* Profile timeline */
+.profile-timeline { padding: 0 20px; }
+.tl-row { display: flex; gap: 12px; margin-bottom: 6px; }
+.tl-year { font-size: 11px; color: var(--brass); width: 40px; flex-shrink: 0; padding-top: 2px; }
+.tl-line { width: 1px; background: var(--line); flex-shrink: 0; }
+.tl-content { padding: 2px 0 10px; flex: 1; }
+.tl-content.event { background: var(--card-soft); border-radius: 12px; padding: 10px 12px; border-left: 2px solid var(--brass); margin-bottom: 4px; }
+.tl-title { font-size: 13.5px; font-weight: 500; }
+.tl-desc { font-size: 12px; color: var(--paper-soft); margin-top: 4px; line-height: 1.5; }
