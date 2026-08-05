@@ -518,11 +518,51 @@ function renderTreeView(wrap, family, meId) {
   canvas.appendChild(svg);
 
   const nodeEls = {};
-  const visited = new Set();
-  trueRootIds(people, couples).forEach((rid) => canvas.appendChild(buildUnit(rid, people, couples, meId, nodeEls, visited)));
+  const rendered = new Set();
 
+  // Encontrar las raíces reales: personas sin padres que no son la pareja
+  // secundaria de otra raíz. Agrupamos parejas para no renderizar a ambos
+  // como raíces separadas.
+  const noParent = people.filter((p) => p.parentIds.length === 0);
+  const rootGroups = []; // cada grupo: { primary: id, partner: id|null }
+  const usedAsPartner = new Set();
+
+  noParent.forEach((p) => {
+    if (usedAsPartner.has(p.id)) return;
+    // Buscar si esta persona tiene pareja (vía couples o vía hijos compartidos)
+    let partnerId = null;
+    // 1. Por couples
+    const cpls = couples.filter((c) => c.a === p.id || c.b === p.id);
+    if (cpls.length > 0) {
+      partnerId = cpls[0].a === p.id ? cpls[0].b : cpls[0].a;
+    }
+    // 2. Por hijos compartidos
+    if (!partnerId) {
+      const kids = childrenOf(people, p.id);
+      for (const kid of kids) {
+        const otherParent = kid.parentIds.find((pid) => pid !== p.id);
+        if (otherParent) { partnerId = otherParent; break; }
+      }
+    }
+    // Solo agrupar si la pareja también es raíz (sin padres)
+    if (partnerId && byId(people, partnerId)?.parentIds?.length === 0) {
+      usedAsPartner.add(partnerId);
+      rootGroups.push({ primary: p.id, partner: partnerId });
+    } else {
+      rootGroups.push({ primary: p.id, partner: null });
+    }
+  });
+
+  // Renderizar cada grupo raíz
+  rootGroups.forEach((rg) => {
+    const el = buildFamilyUnit(rg.primary, rg.partner, people, couples, meId, nodeEls, rendered);
+    canvas.appendChild(el);
+  });
+
+  // Dibujar las líneas de conexión padre→hijo
   requestAnimationFrame(() => {
     const cRect = canvas.getBoundingClientRect();
+    if (!cRect.width) return;
     let paths = "";
     people.forEach((p) => {
       if (p.parentIds.length === 0) return;
@@ -543,34 +583,79 @@ function renderTreeView(wrap, family, meId) {
   });
 }
 
-function buildUnit(id, people, couples, meId, nodeEls, visited) {
-  if (visited.has(id)) return document.createDocumentFragment();
-  visited.add(id);
-  const person = byId(people, id);
-  const groups = groupsFor(people, couples, id);
-  const entries = Object.entries(groups);
-  if (entries.length === 0) return buildCard(person, people, couples, meId, nodeEls);
-  const row = document.createElement("div"); row.className = "tree-unit-row";
-  entries.forEach(([otherId, { kids, ex }]) => {
-    const partner = otherId !== "__solo__" ? byId(people, otherId) : null;
-    if (partner) visited.add(partner.id);
-    const group = document.createElement("div"); group.className = "tree-group";
-    const couple = document.createElement("div"); couple.className = "tree-couple";
-    couple.appendChild(buildCard(person, people, couples, meId, nodeEls));
-    if (partner) {
-      const conn = document.createElement("div"); conn.className = "tree-connector" + (ex ? " ex" : "");
-      couple.appendChild(conn);
-      couple.appendChild(buildCard(partner, people, couples, meId, nodeEls));
+// Construir una unidad familiar: pareja (o persona sola) + sus hijos recursivamente
+function buildFamilyUnit(primaryId, partnerId, people, couples, meId, nodeEls, rendered) {
+  const container = document.createElement("div"); container.className = "tree-group";
+
+  // La pareja
+  const coupleRow = document.createElement("div"); coupleRow.className = "tree-couple";
+  const primary = byId(people, primaryId);
+  if (!rendered.has(primaryId)) {
+    coupleRow.appendChild(buildCard(primary, people, couples, meId, nodeEls));
+    rendered.add(primaryId);
+  }
+  if (partnerId && !rendered.has(partnerId)) {
+    const partner = byId(people, partnerId);
+    const isEx = couples.some((c) => ((c.a === primaryId && c.b === partnerId) || (c.a === partnerId && c.b === primaryId)) && c.ex);
+    const conn = document.createElement("div");
+    conn.className = "tree-connector" + (isEx ? " ex" : "");
+    coupleRow.appendChild(conn);
+    coupleRow.appendChild(buildCard(partner, people, couples, meId, nodeEls));
+    rendered.add(partnerId);
+  }
+  container.appendChild(coupleRow);
+
+  // Hijos de esta pareja concreta
+  const kids = people.filter((p) => {
+    if (rendered.has(p.id)) return false;
+    if (partnerId) {
+      return p.parentIds.includes(primaryId) && p.parentIds.includes(partnerId);
+    } else {
+      return p.parentIds.includes(primaryId);
     }
-    group.appendChild(couple);
-    if (kids.length > 0) {
-      const childrenWrap = document.createElement("div"); childrenWrap.className = "tree-children";
-      kids.forEach((k) => childrenWrap.appendChild(buildUnit(k.id, people, couples, meId, nodeEls, visited)));
-      group.appendChild(childrenWrap);
-    }
-    row.appendChild(group);
   });
-  return row;
+
+  if (kids.length > 0) {
+    const childrenWrap = document.createElement("div"); childrenWrap.className = "tree-children";
+    kids.forEach((kid) => {
+      // Ver si este hijo tiene pareja (con hijos) → renderizar como unidad familiar
+      const kidPartners = findPartnersWithKids(kid.id, people, couples, rendered);
+      if (kidPartners.length > 0) {
+        kidPartners.forEach((kp) => {
+          childrenWrap.appendChild(buildFamilyUnit(kid.id, kp, people, couples, meId, nodeEls, rendered));
+        });
+      } else {
+        // Ver si tiene pareja sin hijos (vía couples)
+        const couplePartner = couples.find((c) => (c.a === kid.id || c.b === kid.id) && !rendered.has(c.a === kid.id ? c.b : c.a));
+        if (couplePartner) {
+          const cpId = couplePartner.a === kid.id ? couplePartner.b : couplePartner.a;
+          childrenWrap.appendChild(buildFamilyUnit(kid.id, cpId, people, couples, meId, nodeEls, rendered));
+        } else {
+          // Solo, sin pareja
+          if (!rendered.has(kid.id)) {
+            childrenWrap.appendChild(buildCard(kid, people, couples, meId, nodeEls));
+            rendered.add(kid.id);
+          }
+        }
+      }
+    });
+    container.appendChild(childrenWrap);
+  }
+
+  return container;
+}
+
+// Encontrar las parejas de una persona que tienen hijos en común
+function findPartnersWithKids(personId, people, couples, rendered) {
+  const partnerIds = new Set();
+  childrenOf(people, personId).forEach((kid) => {
+    if (rendered.has(kid.id)) return;
+    kid.parentIds.forEach((pid) => { if (pid !== personId) partnerIds.add(pid); });
+  });
+  const soloKids = childrenOf(people, personId).filter((k) => !rendered.has(k.id) && k.parentIds.length === 1);
+  const result = [...partnerIds];
+  if (soloKids.length > 0 && result.length === 0) result.push(null);
+  return result;
 }
 
 function buildCard(p, people, couples, meId, nodeEls) {
@@ -588,13 +673,13 @@ function buildCard(p, people, couples, meId, nodeEls) {
 // ======================== PROFILE VIEW =====================================
 function renderProfile(wrap, people, couples, events, meId, personId) {
   const p = byId(people, personId);
-  if (!p) return;
+  if (!p) { setState({ openPersonId: null }); return; }
   const rel = relationLabel(people, couples, meId, personId);
 
   const section = document.createElement("div"); section.className = "section"; section.style.padding = "0 20px";
   section.innerHTML = `
     <button class="btn-back" id="btn-back-profile">← Volver</button>
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
       <div class="person-avatar big${p.id === meId ? " you" : ""}">${p.name.charAt(0)}</div>
       <div>
         <div style="font-family:'Fraunces',serif;font-weight:600;font-size:22px">${p.name}</div>
@@ -602,29 +687,42 @@ function renderProfile(wrap, people, couples, events, meId, personId) {
       </div>
     </div>`;
   wrap.appendChild(section);
-  section.querySelector("#btn-back-profile").onclick = () => setState({ openPersonId: null });
+  section.querySelector("#btn-back-profile").onclick = () => setState({ openPersonId: null, addingInfo: null });
 
-  // Botones para añadir info
+  // ---- Botones de acción ----
   const btns = document.createElement("div"); btns.style.cssText = "padding:0 20px 12px;display:flex;gap:8px;flex-wrap:wrap";
   btns.innerHTML = `
     <button class="small-btn" id="btn-add-loc" style="font-size:11px">+ Ubicación</button>
-    <button class="small-btn" id="btn-add-act" style="font-size:11px">+ Actividad</button>`;
+    <button class="small-btn" id="btn-add-act" style="font-size:11px">+ Actividad</button>
+    <button class="small-btn" id="btn-edit" style="font-size:11px">✏️ Editar</button>
+    ${!p.deathYear ? '<button class="small-btn" id="btn-death" style="font-size:11px">🕊️ Fallecimiento</button>' : ''}
+    ${p.id !== meId ? '<button class="small-btn" id="btn-delete" style="font-size:11px;border-color:var(--danger);color:var(--danger)">🗑️ Eliminar</button>' : ''}`;
   wrap.appendChild(btns);
   btns.querySelector("#btn-add-loc").onclick = () => setState({ addingInfo: { personId, type: "location" } });
   btns.querySelector("#btn-add-act").onclick = () => setState({ addingInfo: { personId, type: "activity" } });
+  btns.querySelector("#btn-edit").onclick = () => setState({ addingInfo: { personId, type: "edit" } });
+  const deathBtn = btns.querySelector("#btn-death");
+  if (deathBtn) deathBtn.onclick = () => setState({ addingInfo: { personId, type: "death" } });
+  const deleteBtn = btns.querySelector("#btn-delete");
+  if (deleteBtn) deleteBtn.onclick = () => setState({ addingInfo: { personId, type: "delete" } });
 
+  // ---- Formularios condicionales ----
   if (state.addingInfo && state.addingInfo.personId === personId) {
-    renderAddInfoForm(wrap, state.addingInfo.type, personId);
+    const t = state.addingInfo.type;
+    if (t === "location" || t === "activity") renderAddInfoForm(wrap, t, personId);
+    if (t === "edit") renderEditForm(wrap, p);
+    if (t === "death") renderDeathForm(wrap, p);
+    if (t === "delete") renderDeleteConfirm(wrap, p);
   }
 
-  // Timeline de esta persona
+  // ---- Timeline de esta persona ----
   const timeline = document.createElement("div"); timeline.className = "profile-timeline";
   const entries = [];
   if (p.birthYear) entries.push({ year: p.birthYear, icon: "🎒", title: "Nace", desc: rel });
   (p.activities || []).forEach((a) => entries.push({ year: a.from, icon: "💼", title: a.label }));
   (p.locations || []).forEach((l) => entries.push({ year: l.from, icon: "📍", title: `${l.city}, ${l.country}` }));
   (events || []).filter((e) => (e.memberIds || []).includes(personId)).forEach((e) => entries.push({ year: e.year, icon: "📖", title: e.title, desc: e.story || e.desc, isEvent: true }));
-  if (p.deathYear) entries.push({ year: p.deathYear, icon: "🕊️", title: "Fallece", desc: `A los ${p.deathYear - p.birthYear} años.` });
+  if (p.deathYear) entries.push({ year: p.deathYear, icon: "🕊️", title: "Fallece", desc: p.birthYear ? `A los ${p.deathYear - p.birthYear} años.` : "" });
   entries.sort((a, b) => a.year - b.year);
 
   entries.forEach((entry) => {
@@ -642,6 +740,90 @@ function renderProfile(wrap, people, couples, events, meId, personId) {
     timeline.innerHTML = '<div class="empty-note" style="padding:8px 20px">Aún no hay datos registrados para esta persona.</div>';
   }
   wrap.appendChild(timeline);
+}
+
+// ---- Formulario de editar persona ----
+function renderEditForm(wrap, p) {
+  const form = document.createElement("div"); form.className = "add-form";
+  form.innerHTML = `
+    <div class="form-title">Editar a ${p.name}</div>
+    <label>Nombre</label><input id="ed-name" value="${p.name}" />
+    <div class="gender-toggle">
+      <button data-g="F" class="${p.gender === 'F' ? 'active' : ''}">Mujer</button>
+      <button data-g="M" class="${p.gender === 'M' ? 'active' : ''}">Hombre</button>
+    </div>
+    <label>Año de nacimiento</label><input id="ed-birth" type="number" value="${p.birthYear || ''}" placeholder="p. ej. 1960" />
+    <label>Año de fallecimiento (dejar vacío si vive)</label><input id="ed-death" type="number" value="${p.deathYear || ''}" placeholder="" />
+    <div class="actions">
+      <button class="btn btn-secondary" id="ed-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="ed-save">Guardar</button>
+    </div>`;
+  wrap.appendChild(form);
+  let gender = p.gender;
+  form.querySelectorAll(".gender-toggle button").forEach((b) => {
+    b.onclick = () => { gender = b.dataset.g; form.querySelectorAll(".gender-toggle button").forEach((x) => x.classList.remove("active")); b.classList.add("active"); };
+  });
+  form.querySelector("#ed-cancel").onclick = () => setState({ addingInfo: null });
+  form.querySelector("#ed-save").onclick = () => {
+    const name = form.querySelector("#ed-name").value.trim();
+    if (!name) return;
+    const birthYear = parseInt(form.querySelector("#ed-birth").value) || null;
+    const deathYear = parseInt(form.querySelector("#ed-death").value) || null;
+    const updatedPeople = state.family.people.map((x) => x.id === p.id ? { ...x, name, gender, birthYear, deathYear } : x);
+    const updatedFamily = { ...state.family, people: updatedPeople };
+    setState({ family: updatedFamily, addingInfo: null });
+    persistFamily();
+  };
+}
+
+// ---- Formulario de fecha de fallecimiento ----
+function renderDeathForm(wrap, p) {
+  const form = document.createElement("div"); form.className = "add-form";
+  form.innerHTML = `
+    <div class="form-title">Registrar fallecimiento de ${p.name}</div>
+    <label>Año de fallecimiento</label><input id="dth-year" type="number" placeholder="p. ej. 2020" />
+    <div class="actions">
+      <button class="btn btn-secondary" id="dth-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="dth-save">Guardar</button>
+    </div>`;
+  wrap.appendChild(form);
+  form.querySelector("#dth-cancel").onclick = () => setState({ addingInfo: null });
+  form.querySelector("#dth-save").onclick = () => {
+    const year = parseInt(form.querySelector("#dth-year").value);
+    if (!year) return;
+    const updatedPeople = state.family.people.map((x) => x.id === p.id ? { ...x, deathYear: year } : x);
+    const updatedFamily = { ...state.family, people: updatedPeople };
+    setState({ family: updatedFamily, addingInfo: null });
+    persistFamily();
+  };
+}
+
+// ---- Confirmar borrado ----
+function renderDeleteConfirm(wrap, p) {
+  const hasChildren = childrenOf(state.family.people, p.id).length > 0;
+  const form = document.createElement("div"); form.className = "add-form";
+  form.innerHTML = `
+    <div class="form-title" style="color:var(--danger)">Eliminar a ${p.name}</div>
+    ${hasChildren
+      ? '<div style="font-size:12.5px;color:var(--danger);margin-bottom:12px">Esta persona tiene hijos/as en el árbol. Si la eliminas, sus hijos perderán ese vínculo.</div>'
+      : '<div style="font-size:12.5px;color:var(--paper-soft);margin-bottom:12px">Se eliminará del árbol y de todos los eventos en los que participe.</div>'
+    }
+    <div class="actions">
+      <button class="btn btn-secondary" id="del-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="del-confirm" style="background:var(--danger)">Sí, eliminar</button>
+    </div>`;
+  wrap.appendChild(form);
+  form.querySelector("#del-cancel").onclick = () => setState({ addingInfo: null });
+  form.querySelector("#del-confirm").onclick = () => {
+    const updatedPeople = state.family.people
+      .filter((x) => x.id !== p.id)
+      .map((x) => ({ ...x, parentIds: x.parentIds.filter((pid) => pid !== p.id) }));
+    const updatedCouples = state.family.couples.filter((c) => c.a !== p.id && c.b !== p.id);
+    const updatedEvents = (state.family.events || []).map((e) => ({ ...e, memberIds: (e.memberIds || []).filter((mid) => mid !== p.id) }));
+    const updatedFamily = { ...state.family, people: updatedPeople, couples: updatedCouples, events: updatedEvents };
+    setState({ family: updatedFamily, openPersonId: null, addingInfo: null });
+    persistFamily();
+  };
 }
 
 // ======================== ADD FORMS ========================================
