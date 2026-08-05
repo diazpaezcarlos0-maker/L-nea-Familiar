@@ -5,7 +5,7 @@
 // Ver supabase-schema.sql para crear la tabla y las políticas de acceso.
 // ============================================================================
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const el = document.getElementById("app");
 
 // ------------------------------- Estado --------------------------------
@@ -114,16 +114,16 @@ function relationLabel(people, couples, meId, targetId) {
 const familyCodeKey = (code) => code.trim().toLowerCase();
 
 async function fetchFamily(code) {
-  const { data, error } = await supabase.from("families").select("data").eq("code", familyCodeKey(code)).maybeSingle();
+  const { data, error } = await db.from("families").select("data").eq("code", familyCodeKey(code)).maybeSingle();
   if (error) throw error;
   return data ? data.data : null;
 }
 async function insertFamily(code, family) {
-  const { error } = await supabase.from("families").insert({ code: familyCodeKey(code), data: family });
+  const { error } = await db.from("families").insert({ code: familyCodeKey(code), data: family });
   if (error) throw error;
 }
 async function saveFamily(code, family) {
-  const { error } = await supabase.from("families").update({ data: family }).eq("code", familyCodeKey(code));
+  const { error } = await db.from("families").update({ data: family }).eq("code", familyCodeKey(code));
   if (error) throw error;
 }
 
