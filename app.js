@@ -559,6 +559,26 @@ function renderTreeView(wrap, family, meId) {
     canvas.appendChild(el);
   });
 
+  // ---- GENTE QUE NO APARECIÓ ----
+  // Si alguien no fue renderizado (datos mal conectados, error al añadir, etc.)
+  // lo mostramos abajo para que no se pierda y el usuario pueda editarlo.
+  const missing = people.filter((p) => !rendered.has(p.id));
+  if (missing.length > 0) {
+    const missingWrap = document.createElement("div");
+    missingWrap.style.cssText = "padding:16px 20px 0;border-top:1px solid var(--line);margin-top:16px";
+    missingWrap.innerHTML = '<div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--paper-soft);margin-bottom:8px;text-align:center">Sin conexión visible — toca para editar</div>';
+    const missingGrid = document.createElement("div");
+    missingGrid.style.cssText = "display:flex;flex-wrap:wrap;gap:12px;justify-content:center";
+    missing.forEach((p) => {
+      const card = buildCard(p, people, couples, meId, nodeEls);
+      card.style.opacity = "0.7";
+      missingGrid.appendChild(card);
+      rendered.add(p.id);
+    });
+    missingWrap.appendChild(missingGrid);
+    wrap.appendChild(missingWrap);
+  }
+
   // Dibujar las líneas de conexión padre→hijo
   requestAnimationFrame(() => {
     const cRect = canvas.getBoundingClientRect();
@@ -829,16 +849,15 @@ function renderDeleteConfirm(wrap, p) {
 // ======================== ADD FORMS ========================================
 function renderAddPersonForm(wrap, family) {
   const { people } = family;
-  const RELS = [{ id: "hijo", label: "Es hijo/a de" }, { id: "padre", label: "Es padre/madre de" }, { id: "pareja", label: "Es pareja de" }, { id: "hermano", label: "Es hermano/a de" }];
   const form = document.createElement("div"); form.className = "add-form";
   form.innerHTML = `
     <div class="form-title">Añadir familiar</div>
     <input id="a-name" placeholder="Nombre" />
     <div class="gender-toggle"><button data-g="F">Mujer</button><button data-g="M" class="active">Hombre</button></div>
     <label>Año de nacimiento (opcional)</label><input id="a-birth" type="number" placeholder="p. ej. 1960" />
-    <select id="a-type">${RELS.map((r) => `<option value="${r.id}">${r.label}</option>`).join("")}</select>
-    <select id="a-to">${people.map((p) => `<option value="${p.id}">${p.name}</option>`).join("")}</select>
-    <select id="a-to2" style="display:none"><option value="">(el otro progenitor — opcional)</option>${people.map((p) => `<option value="${p.id}">y de ${p.name}</option>`).join("")}</select>
+    <div class="section-label" style="margin-top:10px">PARENTESCOS (puedes añadir varios)</div>
+    <div id="rels-list"></div>
+    <button type="button" class="small-btn" id="a-add-rel" style="margin-bottom:14px;font-size:11px">+ Añadir parentesco</button>
     <div class="error-text" id="a-error" style="display:none"></div>
     <div class="actions"><button class="btn btn-secondary" id="a-cancel">Cancelar</button><button class="btn btn-primary" id="a-submit">Añadir</button></div>`;
   wrap.appendChild(form);
@@ -847,33 +866,97 @@ function renderAddPersonForm(wrap, family) {
   form.querySelectorAll(".gender-toggle button").forEach((b) => {
     b.onclick = () => { gender = b.dataset.g; form.querySelectorAll(".gender-toggle button").forEach((x) => x.classList.remove("active")); b.classList.add("active"); };
   });
-  form.querySelector("#a-type").onchange = () => { form.querySelector("#a-to2").style.display = form.querySelector("#a-type").value === "hijo" ? "block" : "none"; };
+
+  const RELS = [
+    { id: "hijo", label: "Es hijo/a de" },
+    { id: "padre", label: "Es padre/madre de" },
+    { id: "pareja", label: "Es pareja de" },
+    { id: "hermano", label: "Es hermano/a de" },
+  ];
+  const rels = []; // {type, to}
+  const relsList = form.querySelector("#rels-list");
+
+  function addRelRow(defaults) {
+    const idx = rels.length;
+    rels.push(defaults || { type: "hijo", to: people[0]?.id || "" });
+    renderRels();
+  }
+  function renderRels() {
+    relsList.innerHTML = "";
+    rels.forEach((r, i) => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:6px;margin-bottom:8px;align-items:center";
+      row.innerHTML = `
+        <select data-field="type" data-i="${i}" style="flex:1;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:12px;color:var(--paper);font-family:inherit">
+          ${RELS.map((rl) => `<option value="${rl.id}" ${r.type === rl.id ? "selected" : ""}>${rl.label}</option>`).join("")}
+        </select>
+        <select data-field="to" data-i="${i}" style="flex:1.2;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:12px;color:var(--paper);font-family:inherit">
+          ${people.map((p) => `<option value="${p.id}" ${r.to === p.id ? "selected" : ""}>${p.name}</option>`).join("")}
+        </select>
+        <button type="button" data-del="${i}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:4px">×</button>`;
+      relsList.appendChild(row);
+      row.querySelectorAll("select").forEach((sel) => {
+        sel.onchange = () => { rels[parseInt(sel.dataset.i)][sel.dataset.field] = sel.value; };
+      });
+      row.querySelector("[data-del]").onclick = () => { rels.splice(i, 1); renderRels(); };
+    });
+  }
+  addRelRow(); // empieza con un parentesco
+  form.querySelector("#a-add-rel").onclick = () => addRelRow();
+
   form.querySelector("#a-cancel").onclick = () => setState({ adding: false });
   form.querySelector("#a-submit").onclick = () => {
     const errEl = form.querySelector("#a-error");
     const name = form.querySelector("#a-name").value.trim();
     const birthYear = parseInt(form.querySelector("#a-birth").value) || null;
-    const relType = form.querySelector("#a-type").value;
-    const relTo = form.querySelector("#a-to").value;
-    const relTo2 = form.querySelector("#a-to2").value;
     if (!name) { errEl.textContent = "Ponle un nombre"; errEl.style.display = "block"; return; }
+    if (rels.length === 0) { errEl.textContent = "Añade al menos un parentesco"; errEl.style.display = "block"; return; }
+
     const id = newId();
     const person = { id, name, gender, parentIds: [], birthYear, deathYear: null, locations: [], activities: [] };
-    let newCouples = [], patchedPeople = [];
-    if (relType === "hijo") {
-      person.parentIds = relTo2 ? [relTo, relTo2] : [relTo];
-      if (relTo2) newCouples.push({ a: relTo, b: relTo2, ex: false });
-    } else if (relType === "padre") {
-      const child = byId(people, relTo);
-      if (child.parentIds.length >= 2) { errEl.textContent = `${child.name} ya tiene dos progenitores`; errEl.style.display = "block"; return; }
-      patchedPeople.push({ id: child.id, parentIds: [...child.parentIds, id] });
-      if (child.parentIds[0]) newCouples.push({ a: child.parentIds[0], b: id, ex: false });
-    } else if (relType === "pareja") {
-      newCouples.push({ a: relTo, b: id, ex: false });
-    } else if (relType === "hermano") {
-      person.parentIds = [...(byId(people, relTo)?.parentIds || [])];
+    let newCouples = [];
+    let patchMap = {}; // id → { parentIds: [...] }
+
+    rels.forEach((r) => {
+      if (r.type === "hijo") {
+        if (!person.parentIds.includes(r.to)) person.parentIds.push(r.to);
+      } else if (r.type === "padre") {
+        const child = byId(people, r.to);
+        if (child && child.parentIds.length < 2) {
+          if (!patchMap[child.id]) patchMap[child.id] = { parentIds: [...child.parentIds] };
+          if (!patchMap[child.id].parentIds.includes(id)) patchMap[child.id].parentIds.push(id);
+          // Si el hijo ya tenía otro progenitor, hacer pareja automática
+          const otherParent = patchMap[child.id].parentIds.find((pid) => pid !== id);
+          if (otherParent) {
+            const alreadyCouple = newCouples.some((c) => (c.a === otherParent && c.b === id) || (c.a === id && c.b === otherParent));
+            if (!alreadyCouple) newCouples.push({ a: otherParent, b: id, ex: false });
+          }
+        }
+      } else if (r.type === "pareja") {
+        const alreadyCouple = newCouples.some((c) => (c.a === r.to && c.b === id) || (c.a === id && c.b === r.to))
+          || family.couples.some((c) => (c.a === r.to && c.b === id) || (c.a === id && c.b === r.to));
+        if (!alreadyCouple) newCouples.push({ a: r.to, b: id, ex: false });
+      } else if (r.type === "hermano") {
+        const sibling = byId(people, r.to);
+        if (sibling) {
+          sibling.parentIds.forEach((pid) => {
+            if (!person.parentIds.includes(pid)) person.parentIds.push(pid);
+          });
+        }
+      }
+    });
+
+    // Si tiene exactamente 2 padres asignados como hijo, emparejar a los padres automáticamente
+    if (person.parentIds.length === 2) {
+      const [p1, p2] = person.parentIds;
+      const alreadyCouple = newCouples.some((c) => (c.a === p1 && c.b === p2) || (c.a === p2 && c.b === p1))
+        || family.couples.some((c) => (c.a === p1 && c.b === p2) || (c.a === p2 && c.b === p1));
+      if (!alreadyCouple) newCouples.push({ a: p1, b: p2, ex: false });
     }
-    const updatedPeople = people.map((p) => { const patch = patchedPeople.find((pp) => pp.id === p.id); return patch ? { ...p, ...patch } : p; }).concat([person]);
+
+    const updatedPeople = people
+      .map((p) => patchMap[p.id] ? { ...p, ...patchMap[p.id] } : p)
+      .concat([person]);
     const updatedFamily = { ...family, people: updatedPeople, couples: [...family.couples, ...newCouples] };
     setState({ family: updatedFamily, adding: false });
     persistFamily();
