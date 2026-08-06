@@ -195,6 +195,15 @@ input.error { border-color: var(--danger); }
 
 /* Map */
 .map-wrap { background: var(--card-soft); border-radius: 16px; padding: 8px; margin: 0 20px 12px; }
+.map-marker { background: none !important; border: none !important; }
+.marker-circle {
+  width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--card); border: 2px solid var(--brass); color: var(--paper);
+  font-family: 'Fraunces', serif; font-weight: 600; font-size: 14px; margin: 0 auto;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.marker-circle.you { background: var(--brass); color: var(--card); }
+.marker-label { font-size: 10px; text-align: center; color: var(--paper); font-weight: 600; margin-top: 2px; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
 .city-list { padding: 0 20px; }
 .city-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 2px; }
 .city-names { color: var(--paper-soft); }
@@ -208,3 +217,12 @@ input.error { border-color: var(--danger); }
 .tl-content.event { background: var(--card-soft); border-radius: 12px; padding: 10px 12px; border-left: 2px solid var(--brass); margin-bottom: 4px; }
 .tl-title { font-size: 13.5px; font-weight: 500; }
 .tl-desc { font-size: 12px; color: var(--paper-soft); margin-top: 4px; line-height: 1.5; }
+
+/* Story cards */
+.story-card {
+  background: var(--card-soft); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px;
+  border-left: 2px solid var(--brass);
+}
+.story-year { font-size: 11px; color: var(--brass); font-weight: 600; margin-bottom: 4px; }
+.story-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.story-text { font-size: 13.5px; line-height: 1.65; color: var(--paper); font-family: 'Fraunces', serif; white-space: pre-wrap; }
