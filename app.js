@@ -242,7 +242,7 @@ function renderJoin() {
       if (!family) { errEl.textContent = "No existe ese código"; errEl.style.display = "block"; btn.disabled = false; btn.textContent = "Entrar"; return; }
       // Migrar datos antiguos si no tienen events/locations/activities
       if (!family.events) family.events = [];
-      family.people.forEach((p) => { if (!p.locations) p.locations = []; if (!p.activities) p.activities = []; if (!p.birthYear) p.birthYear = null; if (!p.deathYear) p.deathYear = null; });
+      family.people.forEach((p) => { if (!p.locations) p.locations = []; if (!p.activities) p.activities = []; if (!p.stories) p.stories = []; if (!p.birthYear) p.birthYear = null; if (!p.deathYear) p.deathYear = null; });
       localStorage.setItem("lf_code", code.trim().toLowerCase());
       setState({ phase: "who", code: code.trim().toLowerCase(), family });
     } catch (err) {
@@ -440,46 +440,74 @@ function renderMap(wrap, family, meId, year) {
   const byCity = {};
   present.forEach((p) => {
     const loc = pointAt(p.locations, year);
-    if (!loc) return;
+    if (!loc || !loc.lat || !loc.lng) return;
     if (!byCity[loc.city]) byCity[loc.city] = { loc, people: [] };
     byCity[loc.city].people.push(p);
   });
 
-  const MAP_W = 400, MAP_H = 220;
-  const LON_MIN = -130, LON_MAX = 50, LAT_MIN = -55, LAT_MAX = 70;
-  function project(lat, lng) {
-    return { x: ((lng - LON_MIN) / (LON_MAX - LON_MIN)) * MAP_W, y: ((LAT_MAX - lat) / (LAT_MAX - LAT_MIN)) * MAP_H };
+  const cities = Object.values(byCity);
+
+  // Contenedor del mapa
+  const mapContainer = document.createElement("div");
+  mapContainer.id = "leaflet-map-" + Date.now();
+  mapContainer.style.cssText = "width:100%;height:320px;border-radius:16px;margin:0 0 12px;overflow:hidden";
+  const mapSection = document.createElement("div");
+  mapSection.style.padding = "0 12px";
+  mapSection.appendChild(mapContainer);
+  wrap.appendChild(mapSection);
+
+  if (cities.length === 0) {
+    mapContainer.style.height = "180px";
+    mapContainer.style.display = "flex";
+    mapContainer.style.alignItems = "center";
+    mapContainer.style.justifyContent = "center";
+    mapContainer.style.background = "var(--card-soft)";
+    mapContainer.style.color = "var(--paper-soft)";
+    mapContainer.style.fontSize = "13px";
+    mapContainer.textContent = "Aún no hay ubicaciones. Toca un integrante en Línea y añádele ubicación.";
+    return;
   }
 
-  const mapWrap = document.createElement("div"); mapWrap.className = "map-wrap";
-  let svgContent = '';
-  // Grid lines
-  for (let i = 0; i < 8; i++) {
-    const lon = LON_MIN + (i * (LON_MAX - LON_MIN)) / 7;
-    const { x } = project(0, lon);
-    svgContent += `<line x1="${x}" y1="0" x2="${x}" y2="${MAP_H}" stroke="var(--line)" stroke-width="0.5"/>`;
-  }
-  for (let i = 0; i < 6; i++) {
-    const lat = LAT_MIN + (i * (LAT_MAX - LAT_MIN)) / 5;
-    const { y } = project(lat, 0);
-    svgContent += `<line x1="0" y1="${y}" x2="${MAP_W}" y2="${y}" stroke="${lat === 0 ? 'var(--brass-dim)' : 'var(--line)'}" stroke-width="${lat === 0 ? 1 : 0.5}"/>`;
-  }
-  // Pins
-  Object.entries(byCity).forEach(([city, group]) => {
-    const { x, y } = project(group.loc.lat, group.loc.lng);
-    group.people.forEach((p, idx) => {
-      const offset = (idx - (group.people.length - 1) / 2) * 24;
-      const isYou = p.id === meId;
-      svgContent += `<circle cx="${x + offset}" cy="${y}" r="12" fill="${isYou ? 'var(--brass)' : 'var(--card)'}" stroke="var(--brass)" stroke-width="1.5"/>`;
-      svgContent += `<text x="${x + offset}" y="${y + 4}" text-anchor="middle" font-size="10" font-weight="600" fill="${isYou ? 'var(--card)' : 'var(--paper)'}" font-family="'Fraunces',serif">${p.name.charAt(0)}</text>`;
+  // Inicializar Leaflet después de que el DOM esté listo
+  requestAnimationFrame(() => {
+    const map = L.map(mapContainer.id, { zoomControl: false, attributionControl: false }).setView([40, -3], 4);
+    L.control.zoom({ position: "bottomright" }).addTo(map);
+
+    // Tiles estilo claro/limpio
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      maxZoom: 19
+    }).addTo(map);
+
+    const bounds = [];
+
+    cities.forEach(({ loc, people: cityPeople }) => {
+      const latlng = [loc.lat, loc.lng];
+      bounds.push(latlng);
+
+      cityPeople.forEach((p, idx) => {
+        const isYou = p.id === meId;
+        const offset = (idx - (cityPeople.length - 1) / 2) * 0.003;
+        const icon = L.divIcon({
+          className: "map-marker",
+          html: `<div class="marker-circle${isYou ? " you" : ""}">${p.name.charAt(0)}</div><div class="marker-label">${p.name}</div>`,
+          iconSize: [60, 50],
+          iconAnchor: [30, 25],
+        });
+        L.marker([loc.lat + offset * 0.5, loc.lng + offset], { icon }).addTo(map)
+          .on("click", () => setState({ openPersonId: p.id }));
+      });
     });
-    svgContent += `<text x="${x}" y="${y + 26}" text-anchor="middle" font-size="8.5" fill="var(--paper)" font-family="'Inter',sans-serif">${city}</text>`;
+
+    if (bounds.length > 0) {
+      if (bounds.length === 1) {
+        map.setView(bounds[0], 10);
+      } else {
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+      }
+    }
   });
 
-  mapWrap.innerHTML = `<svg viewBox="0 0 ${MAP_W} ${MAP_H}" style="width:100%;display:block;overflow:visible">${svgContent}</svg>`;
-  wrap.appendChild(mapWrap);
-
-  // City list
+  // Lista de ciudades debajo del mapa
   const cityList = document.createElement("div"); cityList.className = "city-list";
   Object.entries(byCity).forEach(([city, group]) => {
     const row = document.createElement("div"); row.className = "city-row";
@@ -487,12 +515,6 @@ function renderMap(wrap, family, meId, year) {
     cityList.appendChild(row);
   });
   wrap.appendChild(cityList);
-
-  if (Object.keys(byCity).length === 0) {
-    const note = document.createElement("div"); note.className = "empty-note"; note.style.padding = "20px"; note.style.textAlign = "center";
-    note.textContent = "Aún no hay ubicaciones registradas. Toca un integrante en la pestaña Línea y añádele ubicación.";
-    wrap.appendChild(note);
-  }
 }
 
 // ======================== TREE VIEW ========================================
@@ -727,12 +749,14 @@ function renderProfile(wrap, people, couples, events, meId, personId) {
   btns.innerHTML = `
     <button class="small-btn" id="btn-add-loc" style="font-size:11px">+ Ubicación</button>
     <button class="small-btn" id="btn-add-act" style="font-size:11px">+ Actividad</button>
+    <button class="small-btn" id="btn-add-story" style="font-size:11px">+ Historia</button>
     <button class="small-btn" id="btn-edit" style="font-size:11px">✏️ Editar</button>
     ${!p.deathYear ? '<button class="small-btn" id="btn-death" style="font-size:11px">🕊️ Fallecimiento</button>' : ''}
     ${p.id !== meId ? '<button class="small-btn" id="btn-delete" style="font-size:11px;border-color:var(--danger);color:var(--danger)">🗑️ Eliminar</button>' : ''}`;
   wrap.appendChild(btns);
   btns.querySelector("#btn-add-loc").onclick = () => setState({ addingInfo: { personId, type: "location" } });
   btns.querySelector("#btn-add-act").onclick = () => setState({ addingInfo: { personId, type: "activity" } });
+  btns.querySelector("#btn-add-story").onclick = () => setState({ addingInfo: { personId, type: "story" } });
   btns.querySelector("#btn-edit").onclick = () => setState({ addingInfo: { personId, type: "edit" } });
   const deathBtn = btns.querySelector("#btn-death");
   if (deathBtn) deathBtn.onclick = () => setState({ addingInfo: { personId, type: "death" } });
@@ -743,9 +767,26 @@ function renderProfile(wrap, people, couples, events, meId, personId) {
   if (state.addingInfo && state.addingInfo.personId === personId) {
     const t = state.addingInfo.type;
     if (t === "location" || t === "activity") renderAddInfoForm(wrap, t, personId);
+    if (t === "story") renderAddStoryForm(wrap, personId);
     if (t === "edit") renderEditForm(wrap, p);
     if (t === "death") renderDeathForm(wrap, p);
     if (t === "delete") renderDeleteConfirm(wrap, p);
+  }
+
+  // ---- Historias de esta persona ----
+  const personStories = (p.stories || []).sort((a, b) => a.year - b.year);
+  if (personStories.length > 0) {
+    const storiesSection = document.createElement("div"); storiesSection.className = "section"; storiesSection.style.padding = "0 20px 16px";
+    storiesSection.innerHTML = '<div class="section-label">HISTORIAS</div>';
+    personStories.forEach((s) => {
+      const card = document.createElement("div"); card.className = "story-card";
+      card.innerHTML = `
+        <div class="story-year">${s.year}</div>
+        <div class="story-title">${s.title}</div>
+        <div class="story-text">${s.text}</div>`;
+      storiesSection.appendChild(card);
+    });
+    wrap.appendChild(storiesSection);
   }
 
   // ---- Timeline de esta persona ----
@@ -755,6 +796,7 @@ function renderProfile(wrap, people, couples, events, meId, personId) {
   (p.activities || []).forEach((a) => entries.push({ year: a.from, icon: "💼", title: a.label }));
   (p.locations || []).forEach((l) => entries.push({ year: l.from, icon: "📍", title: `${l.city}, ${l.country}` }));
   (events || []).filter((e) => (e.memberIds || []).includes(personId)).forEach((e) => entries.push({ year: e.year, icon: "📖", title: e.title, desc: e.story || e.desc, isEvent: true }));
+  (p.stories || []).forEach((s) => entries.push({ year: s.year, icon: "✍️", title: s.title, desc: s.text, isEvent: true }));
   if (p.deathYear) entries.push({ year: p.deathYear, icon: "🕊️", title: "Fallece", desc: p.birthYear ? `A los ${p.deathYear - p.birthYear} años.` : "" });
   entries.sort((a, b) => a.year - b.year);
 
@@ -825,6 +867,37 @@ function renderDeathForm(wrap, p) {
     const year = parseInt(form.querySelector("#dth-year").value);
     if (!year) return;
     const updatedPeople = state.family.people.map((x) => x.id === p.id ? { ...x, deathYear: year } : x);
+    const updatedFamily = { ...state.family, people: updatedPeople };
+    setState({ family: updatedFamily, addingInfo: null });
+    persistFamily();
+  };
+}
+
+// ---- Formulario de añadir historia ----
+function renderAddStoryForm(wrap, personId) {
+  const form = document.createElement("div"); form.className = "add-form";
+  form.innerHTML = `
+    <div class="form-title">Escribir una historia</div>
+    <label>Año</label><input id="st-year" type="number" placeholder="p. ej. 1985" />
+    <label>Título</label><input id="st-title" placeholder="p. ej. El verano en el pueblo" />
+    <label>Historia</label>
+    <textarea id="st-text" rows="5" placeholder="Cuenta lo que pasó, lo que recuerdas, anécdotas…" style="width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--paper);font-family:inherit;resize:vertical;margin-bottom:12px;line-height:1.5"></textarea>
+    <div class="actions">
+      <button class="btn btn-secondary" id="st-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="st-save">Guardar</button>
+    </div>`;
+  wrap.appendChild(form);
+  form.querySelector("#st-cancel").onclick = () => setState({ addingInfo: null });
+  form.querySelector("#st-save").onclick = () => {
+    const year = parseInt(form.querySelector("#st-year").value);
+    const title = form.querySelector("#st-title").value.trim();
+    const text = form.querySelector("#st-text").value.trim();
+    if (!year || !title || !text) return;
+    const updatedPeople = state.family.people.map((p) => {
+      if (p.id !== personId) return p;
+      const stories = [...(p.stories || []), { year, title, text }].sort((a, b) => a.year - b.year);
+      return { ...p, stories };
+    });
     const updatedFamily = { ...state.family, people: updatedPeople };
     setState({ family: updatedFamily, addingInfo: null });
     persistFamily();
@@ -1059,9 +1132,8 @@ function renderAddInfoForm(wrap, type, personId) {
   try {
     const family = await fetchFamily(savedCode);
     if (!family) { setState({ phase: "entry" }); return; }
-    // Migrar datos antiguos
     if (!family.events) family.events = [];
-    family.people.forEach((p) => { if (!p.locations) p.locations = []; if (!p.activities) p.activities = []; if (!p.birthYear) p.birthYear = null; if (!p.deathYear) p.deathYear = null; });
+    family.people.forEach((p) => { if (!p.locations) p.locations = []; if (!p.activities) p.activities = []; if (!p.stories) p.stories = []; if (!p.birthYear) p.birthYear = null; if (!p.deathYear) p.deathYear = null; });
     const savedMe = localStorage.getItem("lf_me");
     if (savedMe && byId(family.people, savedMe)) setState({ phase: "main", code: savedCode, family, meId: savedMe, selectedYear: new Date().getFullYear() });
     else setState({ phase: "who", code: savedCode, family });
