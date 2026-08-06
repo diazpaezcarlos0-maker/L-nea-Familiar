@@ -11,7 +11,7 @@ flujo que ya usas en OPOTEST.
    `supabase-schema.sql` → **Run**. Esto crea la tabla `families`.
 3. Ve a **Settings → API** y copia:
    - **Project URL**
-   - **anon public** key
+   - **anon public** key.
 
 ## 2. Configurar la app
 
