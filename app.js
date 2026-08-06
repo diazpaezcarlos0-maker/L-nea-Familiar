@@ -520,41 +520,51 @@ function renderTreeView(wrap, family, meId) {
   const nodeEls = {};
   const rendered = new Set();
 
-  // Encontrar las raíces reales: personas sin padres que no son la pareja
-  // secundaria de otra raíz. Agrupamos parejas para no renderizar a ambos
-  // como raíces separadas.
+  // ---- Encontrar raíces reales ----
+  // Una persona es raíz si no tiene padres. Si dos raíces son pareja
+  // (por couples o por compartir hijos), se agrupan como una sola entrada.
+  // Ordenamos por número de descendientes (de más a menos) para que la rama
+  // principal se renderice primero y marque a todos como "ya pintados",
+  // evitando que ramas secundarias dupliquen gente.
   const noParent = people.filter((p) => p.parentIds.length === 0);
-  const rootGroups = []; // cada grupo: { primary: id, partner: id|null }
+  const rootGroups = [];
   const usedAsPartner = new Set();
 
-  noParent.forEach((p) => {
+  // Contar descendientes recursivamente
+  function countDescendants(id, visited) {
+    if (visited.has(id)) return 0;
+    visited.add(id);
+    let count = 0;
+    childrenOf(people, id).forEach((kid) => { count += 1 + countDescendants(kid.id, visited); });
+    return count;
+  }
+
+  // Ordenar raíces de más descendientes a menos
+  const sortedRoots = [...noParent].sort((a, b) => countDescendants(b.id, new Set()) - countDescendants(a.id, new Set()));
+
+  sortedRoots.forEach((p) => {
     if (usedAsPartner.has(p.id)) return;
-    // Buscar si esta persona tiene pareja (vía couples o vía hijos compartidos)
     let partnerId = null;
-    // 1. Por couples
+    // 1. Buscar pareja por couples
     const cpls = couples.filter((c) => c.a === p.id || c.b === p.id);
     if (cpls.length > 0) {
-      partnerId = cpls[0].a === p.id ? cpls[0].b : cpls[0].a;
+      const pid = cpls[0].a === p.id ? cpls[0].b : cpls[0].a;
+      if (byId(people, pid)?.parentIds?.length === 0) partnerId = pid;
     }
-    // 2. Por hijos compartidos
+    // 2. Buscar pareja por hijos compartidos
     if (!partnerId) {
-      const kids = childrenOf(people, p.id);
-      for (const kid of kids) {
-        const otherParent = kid.parentIds.find((pid) => pid !== p.id);
-        if (otherParent) { partnerId = otherParent; break; }
+      for (const kid of childrenOf(people, p.id)) {
+        const other = kid.parentIds.find((pid) => pid !== p.id);
+        if (other && byId(people, other)?.parentIds?.length === 0) { partnerId = other; break; }
       }
     }
-    // Solo agrupar si la pareja también es raíz (sin padres)
-    if (partnerId && byId(people, partnerId)?.parentIds?.length === 0) {
-      usedAsPartner.add(partnerId);
-      rootGroups.push({ primary: p.id, partner: partnerId });
-    } else {
-      rootGroups.push({ primary: p.id, partner: null });
-    }
+    if (partnerId) usedAsPartner.add(partnerId);
+    rootGroups.push({ primary: p.id, partner: partnerId });
   });
 
-  // Renderizar cada grupo raíz
+  // Renderizar cada grupo raíz (saltando si ya fue renderizado dentro de otra rama)
   rootGroups.forEach((rg) => {
+    if (rendered.has(rg.primary)) return;
     const el = buildFamilyUnit(rg.primary, rg.partner, people, couples, meId, nodeEls, rendered);
     canvas.appendChild(el);
   });
@@ -605,6 +615,9 @@ function renderTreeView(wrap, family, meId) {
 
 // Construir una unidad familiar: pareja (o persona sola) + sus hijos recursivamente
 function buildFamilyUnit(primaryId, partnerId, people, couples, meId, nodeEls, rendered) {
+  // Si la persona principal ya fue renderizada en otra rama, saltar
+  if (rendered.has(primaryId)) return document.createDocumentFragment();
+
   const container = document.createElement("div"); container.className = "tree-group";
 
   // La pareja
